@@ -6,8 +6,28 @@ import '../providers/library_provider.dart';
 import '../models/playlist_model.dart';
 import 'player_screen.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  bool _searchBarVisible = false;
+  final TextEditingController _searchController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _searchController.text = context.read<LibraryProvider>().searchQuery;
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -15,18 +35,111 @@ class HomeScreen extends StatelessWidget {
       length: 3,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('Melodia', style: TextStyle(fontWeight: FontWeight.bold)),
+          title: _searchBarVisible
+              ? TextField(
+                  controller: _searchController,
+                  decoration: InputDecoration(
+                    hintText: 'Search songs...',
+                    border: InputBorder.none,
+                    suffixIcon: IconButton(
+                      icon: const Icon(Icons.clear),
+                      onPressed: () {
+                        _searchController.clear();
+                        context.read<LibraryProvider>().setSearchQuery('');
+                      },
+                    ),
+                  ),
+                  autofocus: true,
+                  onChanged: (query) => context.read<LibraryProvider>().setSearchQuery(query),
+                )
+              : const Text('Melodia', style: TextStyle(fontWeight: FontWeight.bold)),
           actions: [
+            IconButton(
+              icon: Icon(_searchBarVisible ? Icons.close : Icons.search),
+              onPressed: () {
+                setState(() {
+                  _searchBarVisible = !_searchBarVisible;
+                  if (!_searchBarVisible) {
+                    _searchController.clear();
+                    context.read<LibraryProvider>().setSearchQuery('');
+                  }
+                });
+              },
+            ),
             IconButton(
               onPressed: () => context.read<LibraryProvider>().refreshSongs(),
               icon: const Icon(Icons.refresh_rounded),
             ),
+            Consumer<LibraryProvider>(
+              builder: (context, library, child) {
+                return PopupMenuButton<String>(
+                  icon: const Icon(Icons.sort),
+                  onSelected: (value) {
+                    if (value == 'title_asc') {
+                      library.setSortCriteria(SongSortCriteria.title);
+                      library.setSortOrder(SortOrder.ascending);
+                    } else if (value == 'title_desc') {
+                      library.setSortCriteria(SongSortCriteria.title);
+                      library.setSortOrder(SortOrder.descending);
+                    } else if (value == 'date_added_asc') {
+                      library.setSortCriteria(SongSortCriteria.dateAdded);
+                      library.setSortOrder(SortOrder.ascending);
+                    } else if (value == 'date_added_desc') {
+                      library.setSortCriteria(SongSortCriteria.dateAdded);
+                      library.setSortOrder(SortOrder.descending);
+                    }
+                  },
+                  itemBuilder: (context) => [
+                    PopupMenuItem(
+                      value: 'title_asc',
+                      child: Text('Title (A-Z)'),
+                      textStyle: TextStyle(
+                        fontWeight: library.sortCriteria == SongSortCriteria.title && library.sortOrder == SortOrder.ascending
+                            ? FontWeight.bold : FontWeight.normal,
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: 'title_desc',
+                      child: Text('Title (Z-A)'),
+                      textStyle: TextStyle(
+                        fontWeight: library.sortCriteria == SongSortCriteria.title && library.sortOrder == SortOrder.descending
+                            ? FontWeight.bold : FontWeight.normal,
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: 'date_added_asc',
+                      child: Text('Date Added (Oldest first)'),
+                      textStyle: TextStyle(
+                        fontWeight: library.sortCriteria == SongSortCriteria.dateAdded && library.sortOrder == SortOrder.ascending
+                            ? FontWeight.bold : FontWeight.normal,
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: 'date_added_desc',
+                      child: Text('Date Added (Newest first)'),
+                      textStyle: TextStyle(
+                        fontWeight: library.sortCriteria == SongSortCriteria.dateAdded && library.sortOrder == SortOrder.descending
+                            ? FontWeight.bold : FontWeight.normal,
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
           ],
-          bottom: const TabBar(
+          bottom: TabBar(
             tabs: [
-              Tab(text: 'Songs'),
-              Tab(text: 'Favorites'),
-              Tab(text: 'Playlists'),
+              Tab(
+                child: Consumer<LibraryProvider>(
+                  builder: (context, library, child) => Text('Songs (${library.songs.length})'),
+                ),
+              ),
+              Tab(
+                child: Consumer<LibraryProvider>(
+                  builder: (context, library, child) => Text('Favorites (${library.favoriteSongs.length})'),
+                ),
+              ),
+              const Tab(text: 'Playlists'),
             ],
           ),
         ),
