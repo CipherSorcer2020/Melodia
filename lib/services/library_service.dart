@@ -1,10 +1,10 @@
-import 'dart:io'; // Add this import
-
 import 'package:on_audio_query/on_audio_query.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:flutter/foundation.dart'; // Add this import
+import 'package:flutter/foundation.dart'; // For debugPrint
+import 'package:flutter/services.dart'; // Add this import
 
 class LibraryService {
+  static const MethodChannel _channel = MethodChannel('com.melodia.app/media_store'); // Define MethodChannel
   final OnAudioQuery _audioQuery = OnAudioQuery();
 
   Future<bool> checkAndRequestPermissions() async {
@@ -44,21 +44,18 @@ class LibraryService {
   }
 
   Future<bool> deleteSong(SongModel song) async {
+    if (song.uri == null) {
+      debugPrint('Song URI is null, cannot perform MediaStore deletion.');
+      return false;
+    }
     try {
-      if (song.data != null) {
-        final file = File(song.data!);
-        if (await file.exists()) {
-          await file.delete();
-          // Optionally, you might also want to try removing from MediaStore
-          // _audioQuery.queryRemoveMedia(song.id); // This method usually removes from DB not actual file
-          return true; // Physical file deleted
-        }
-      }
-      return false; // File path not available or file doesn't exist
-    } catch (e) {
-      debugPrint('Error deleting file: ${song.data} - $e');
-      // On Android 10+, this will often fail due to scoped storage.
-      // A more robust solution would involve MediaStore.createDeleteRequest()
+      final bool? result = await _channel.invokeMethod(
+        'deleteMediaStoreFile',
+        {'uri': song.uri!},
+      );
+      return result ?? false;
+    } on PlatformException catch (e) {
+      debugPrint("Failed to delete media using MediaStore: '${e.message}'.");
       return false;
     }
   }
