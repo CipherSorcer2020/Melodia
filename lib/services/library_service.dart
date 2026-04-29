@@ -2,6 +2,7 @@ import 'dart:io'; // Add this import
 
 import 'package:on_audio_query/on_audio_query.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:flutter/foundation.dart'; // Add this import
 
 class LibraryService {
   final OnAudioQuery _audioQuery = OnAudioQuery();
