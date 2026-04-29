@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentSender
 import android.net.Uri
+import android.app.PendingIntent // Add this import
 import android.provider.MediaStore
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -37,9 +38,9 @@ class MainActivity : FlutterActivity() {
 
     private fun deleteMediaStoreFile(uriString: String) {
         val uri = Uri.parse(uriString)
-        val deleteRequest: IntentSender = MediaStore.createDeleteRequest(contentResolver, listOf(uri))
+        val deleteRequest: PendingIntent = MediaStore.createDeleteRequest(contentResolver, listOf(uri))
 
-        startIntentSenderForResult(deleteRequest, DELETE_REQUEST_CODE, null, 0, 0, 0, null)
+        startIntentSenderForResult(deleteRequest.intentSender, DELETE_REQUEST_CODE, null, 0, 0, 0, null)
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
