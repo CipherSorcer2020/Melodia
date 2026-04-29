@@ -170,8 +170,13 @@ class LibraryProvider with ChangeNotifier {
   }
 
   Future<void> deleteSongFromDevice(SongModel song) async {
-    // Note: LibraryService.deleteSong returns false for now as it's complex on Android 11+
-    // We can remove it from our list to simulate deletion for the UI session
+    final bool physicallyDeleted = await _libraryService.deleteSong(song);
+    if (physicallyDeleted) {
+      debugPrint('Song file ${song.data} physically deleted.');
+    } else {
+      debugPrint('Failed to physically delete song file ${song.data}. It might be due to Android scoped storage limitations.');
+    }
+
     _allSongs.removeWhere((s) => s.id == song.id);
     _favorites.remove(song.id);
     await _dbService.removeFavorite(song.id);

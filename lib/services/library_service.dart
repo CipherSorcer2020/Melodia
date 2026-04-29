@@ -1,3 +1,5 @@
+import 'dart:io'; // Add this import
+
 import 'package:on_audio_query/on_audio_query.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -40,14 +42,23 @@ class LibraryService {
     );
   }
 
-  Future<bool> deleteSong(int id) async {
-    // Note: On Android 10+, this will throw an exception or return false 
-    // because scoped storage requires a specific Intent for deletion.
-    // For now we try via on_audio_query.
-    // However, on_audio_query 2.x doesn't directly delete from storage easily.
-    // Most apps use File(path).delete() but that requires extra permissions.
-    // We'll return false for now to indicate it's complex on modern Android
-    // without a custom implementation.
-    return false;
+  Future<bool> deleteSong(SongModel song) async {
+    try {
+      if (song.data != null) {
+        final file = File(song.data!);
+        if (await file.exists()) {
+          await file.delete();
+          // Optionally, you might also want to try removing from MediaStore
+          // _audioQuery.queryRemoveMedia(song.id); // This method usually removes from DB not actual file
+          return true; // Physical file deleted
+        }
+      }
+      return false; // File path not available or file doesn't exist
+    } catch (e) {
+      debugPrint('Error deleting file: ${song.data} - $e');
+      // On Android 10+, this will often fail due to scoped storage.
+      // A more robust solution would involve MediaStore.createDeleteRequest()
+      return false;
+    }
   }
 }
