@@ -1,5 +1,9 @@
 name: Build & Release
-
+on:
+  workflow_dispatch:   # allows running from Actions tab
+  push:
+    tags:
+      - 'v*'
 on:
   push:
     tags:
