@@ -1,16 +1,48 @@
 import 'package:audio_service/audio_service.dart';
+import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 
-class MelodiaAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
+class MelodiaAudioHandler extends BaseAudioHandler
+    with QueueHandler, SeekHandler {
   final _player = AudioPlayer();
 
+  static const _loopToRepeat = {
+    LoopMode.off: AudioServiceRepeatMode.none,
+    LoopMode.one: AudioServiceRepeatMode.one,
+    LoopMode.all: AudioServiceRepeatMode.all,
+  };
+
+  static const _processingStateMap = {
+    ProcessingState.idle: AudioProcessingState.idle,
+    ProcessingState.loading: AudioProcessingState.loading,
+    ProcessingState.buffering: AudioProcessingState.buffering,
+    ProcessingState.ready: AudioProcessingState.ready,
+    ProcessingState.completed: AudioProcessingState.completed,
+  };
+
   MelodiaAudioHandler() {
-    _player.playbackEventStream.map(_transformEvent).pipe(playbackState);
-    
+    // Use listen instead of pipe so stream errors don't close the sink
+    _player.playbackEventStream.listen(
+      (event) {
+        try {
+          playbackState.add(_transformEvent(event));
+        } catch (e) {
+          debugPrint('Playback state transform error: $e');
+        }
+      },
+      onError: (e) => debugPrint('Playback stream error: $e'),
+    );
+
     _player.currentIndexStream.listen((index) {
-      if (index != null && queue.value.isNotEmpty) {
+      if (index != null && index < queue.value.length) {
         mediaItem.add(queue.value[index]);
+      }
+    });
+
+    _player.playerStateStream.listen((state) {
+      if (state.processingState == ProcessingState.completed) {
+        // Auto-advance handled by just_audio in playlist mode
       }
     });
   }
@@ -27,17 +59,19 @@ class MelodiaAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandle
   Future<void> seek(Duration position) => _player.seek(position);
 
   @override
-  Future<void> stop() => _player.stop();
+  Future<void> stop() async {
+    await _player.stop();
+    await super.stop();
+  }
 
   @override
   Future<void> skipToNext() => _player.seekToNext();
 
   @override
   Future<void> skipToPrevious() async {
-    final currentIndex = _player.currentIndex;
-    if (currentIndex != null && currentIndex > 0) {
-      // Force skip to previous index instead of just seeking to 0:00 of current track
-      await _player.seek(Duration.zero, index: currentIndex - 1);
+    final index = _player.currentIndex ?? 0;
+    if (index > 0) {
+      await _player.seek(Duration.zero, index: index - 1);
     } else {
       await _player.seek(Duration.zero);
     }
@@ -45,50 +79,58 @@ class MelodiaAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandle
 
   @override
   Future<void> setRepeatMode(AudioServiceRepeatMode repeatMode) async {
-    switch (repeatMode) {
-      case AudioServiceRepeatMode.none:
-        await _player.setLoopMode(LoopMode.off);
-        break;
-      case AudioServiceRepeatMode.one:
-        await _player.setLoopMode(LoopMode.one);
-        break;
-      case AudioServiceRepeatMode.all:
-      case AudioServiceRepeatMode.group:
-        await _player.setLoopMode(LoopMode.all);
-        break;
-    }
-    // Explicitly update the playbackState to reflect the new repeatMode
-    playbackState.add(playbackState.value.copyWith(
-      repeatMode: const {
-        LoopMode.off: AudioServiceRepeatMode.none,
-        LoopMode.one: AudioServiceRepeatMode.one,
-        LoopMode.all: AudioServiceRepeatMode.all,
-      }[_player.loopMode]!,
-    ));
+    final loopMode = switch (repeatMode) {
+      AudioServiceRepeatMode.one => LoopMode.one,
+      AudioServiceRepeatMode.all => LoopMode.all,
+      AudioServiceRepeatMode.group => LoopMode.all,
+      _ => LoopMode.off,
+    };
+    await _player.setLoopMode(loopMode);
+    playbackState.add(
+      playbackState.value.copyWith(
+        repeatMode: _loopToRepeat[_player.loopMode] ?? AudioServiceRepeatMode.none,
+      ),
+    );
   }
 
   @override
   Future<void> setShuffleMode(AudioServiceShuffleMode shuffleMode) async {
-    final bool enable = shuffleMode != AudioServiceShuffleMode.none;
-    await _player.setShuffleModeEnabled(enable);
+    await _player.setShuffleModeEnabled(
+      shuffleMode != AudioServiceShuffleMode.none,
+    );
   }
 
   Future<void> setInitialPlaylist(List<SongModel> songs, int initialIndex) async {
-    final mediaItems = songs.map((song) => MediaItem(
-      id: song.uri ?? song.id.toString(),
-      album: song.album,
-      title: song.title,
-      artist: song.artist,
-      duration: Duration(milliseconds: song.duration ?? 0),
-      extras: {'id': song.id},
-    )).toList();
+    // Only keep songs with valid URIs
+    final valid = songs.where((s) => s.uri != null).toList();
+    if (valid.isEmpty) return;
+    final safeIndex = initialIndex.clamp(0, valid.length - 1);
+
+    final mediaItems = valid
+        .map((s) => MediaItem(
+              id: s.uri!,
+              title: s.title,
+              artist: s.artist,
+              album: s.album,
+              duration: Duration(milliseconds: s.duration ?? 0),
+              extras: {'id': s.id},
+            ))
+        .toList();
 
     queue.add(mediaItems);
 
-    final audioSources = songs.map((song) => AudioSource.uri(Uri.parse(song.uri!))).toList();
-
-    await _player.setAudioSources(audioSources, initialIndex: initialIndex);
+    try {
+      final sources = valid
+          .map((s) => AudioSource.uri(Uri.parse(s.uri!)))
+          .toList();
+      await _player.setAudioSources(sources, initialIndex: safeIndex);
+    } catch (e) {
+      debugPrint('setAudioSources error: $e');
+    }
   }
+
+  @override
+  Future<void> customAction(String name, [Map<String, dynamic>? extras]) async {}
 
   PlaybackState _transformEvent(PlaybackEvent event) {
     return PlaybackState(
@@ -106,24 +148,18 @@ class MelodiaAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandle
         MediaAction.setRepeatMode,
       },
       androidCompactActionIndices: const [0, 1, 3],
-      processingState: const {
-        ProcessingState.idle: AudioProcessingState.idle,
-        ProcessingState.loading: AudioProcessingState.loading,
-        ProcessingState.buffering: AudioProcessingState.buffering,
-        ProcessingState.ready: AudioProcessingState.ready,
-        ProcessingState.completed: AudioProcessingState.completed,
-      }[_player.processingState]!,
+      processingState: _processingStateMap[_player.processingState] ??
+          AudioProcessingState.idle,
       playing: _player.playing,
       updatePosition: _player.position,
       bufferedPosition: _player.bufferedPosition,
       speed: _player.speed,
       queueIndex: event.currentIndex,
-      shuffleMode: _player.shuffleModeEnabled ? AudioServiceShuffleMode.all : AudioServiceShuffleMode.none,
-      repeatMode: const {
-        LoopMode.off: AudioServiceRepeatMode.none,
-        LoopMode.one: AudioServiceRepeatMode.one,
-        LoopMode.all: AudioServiceRepeatMode.all,
-      }[_player.loopMode]!,
+      shuffleMode: _player.shuffleModeEnabled
+          ? AudioServiceShuffleMode.all
+          : AudioServiceShuffleMode.none,
+      repeatMode:
+          _loopToRepeat[_player.loopMode] ?? AudioServiceRepeatMode.none,
     );
   }
 }

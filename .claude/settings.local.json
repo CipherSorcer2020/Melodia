@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-Content)",
+      "Bash(flutter analyze *)",
+      "Bash(flutter build *)",
+      "Bash(flutter devices *)",
+      "Bash(flutter install *)",
+      "Bash(flutter pub *)",
+      "Bash(dart run *)",
+      "Bash(adb *)",
+      "Bash(Select-String -Pattern \"AudioService|MediaSession|startForeground|Melodia|melodia|notification\")",
+      "Bash(Select-Object -Last 80)"
+    ]
+  }
+}

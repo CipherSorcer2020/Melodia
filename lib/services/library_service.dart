@@ -1,61 +1,56 @@
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:flutter/foundation.dart'; // For debugPrint
-import 'package:flutter/services.dart'; // Add this import
 
 class LibraryService {
-  static const MethodChannel _channel = MethodChannel('com.melodia.app/media_store'); // Define MethodChannel
-  final OnAudioQuery _audioQuery = OnAudioQuery();
+  static const _channel = MethodChannel('com.melodia.app/media_store');
+  final _audioQuery = OnAudioQuery();
 
   Future<bool> checkAndRequestPermissions() async {
-    // on_audio_query has its own permission check
-    bool status = await _audioQuery.permissionsStatus();
-    if (!status) {
-      status = await _audioQuery.permissionsRequest();
-    }
-    
-    // As a fallback or for more control, use permission_handler
-    if (!status) {
-      if (await Permission.audio.request().isGranted || 
-          await Permission.storage.request().isGranted) {
-        return true;
+    try {
+      bool granted = await _audioQuery.permissionsStatus();
+      if (!granted) granted = await _audioQuery.permissionsRequest();
+      if (!granted) {
+        granted = await Permission.audio.request().isGranted ||
+            await Permission.storage.request().isGranted;
       }
+      return granted;
+    } catch (e) {
+      debugPrint('Permission check error: $e');
+      return false;
     }
-    
-    return status;
   }
 
   Future<List<SongModel>> fetchSongs() async {
-    return await _audioQuery.querySongs(
-      sortType: null,
-      orderType: OrderType.ASC_OR_SMALLER,
-      uriType: UriType.EXTERNAL,
-      ignoreCase: true,
-    );
-  }
-
-  Future<List<AlbumModel>> fetchAlbums() async {
-    return await _audioQuery.queryAlbums(
-      sortType: null,
-      orderType: OrderType.ASC_OR_SMALLER,
-      uriType: UriType.EXTERNAL,
-      ignoreCase: true,
-    );
+    try {
+      final all = await _audioQuery
+          .querySongs(
+            sortType: null,
+            orderType: OrderType.ASC_OR_SMALLER,
+            uriType: UriType.EXTERNAL,
+            ignoreCase: true,
+          )
+          .timeout(const Duration(seconds: 12), onTimeout: () => []);
+      // Keep only playable songs: valid URI, at least 10 s (filters ringtones/notifications)
+      return all
+          .where((s) => s.uri != null && (s.duration ?? 0) >= 10000)
+          .toList();
+    } catch (e) {
+      debugPrint('fetchSongs error: $e');
+      return [];
+    }
   }
 
   Future<bool> deleteSong(SongModel song) async {
-    if (song.uri == null) {
-      debugPrint('Song URI is null, cannot perform MediaStore deletion.');
-      return false;
-    }
+    final uri = song.uri;
+    if (uri == null) return false;
     try {
-      final bool? result = await _channel.invokeMethod(
-        'deleteMediaStoreFile',
-        {'uri': song.uri!},
-      );
+      final result =
+          await _channel.invokeMethod<bool>('deleteMediaStoreFile', {'uri': uri});
       return result ?? false;
     } on PlatformException catch (e) {
-      debugPrint("Failed to delete media using MediaStore: '${e.message}'.");
+      debugPrint('MediaStore delete error: ${e.message}');
       return false;
     }
   }

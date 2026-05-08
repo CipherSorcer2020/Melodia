@@ -42,7 +42,9 @@ class DatabaseService {
   // Favorites
   Future<void> addFavorite(int songId) async {
     final db = await database;
-    await db.insert('favorites', {'id': songId}, conflictAlgorithm: ConflictAlgorithm.ignore);
+    await db.insert('favorites', {
+      'id': songId,
+    }, conflictAlgorithm: ConflictAlgorithm.ignore);
   }
 
   Future<void> removeFavorite(int songId) async {
@@ -76,22 +78,26 @@ class DatabaseService {
     final db = await database;
     await db.insert('playlist_songs', {
       'playlist_id': playlistId,
-      'song_id': songId
+      'song_id': songId,
     }, conflictAlgorithm: ConflictAlgorithm.ignore);
   }
 
   Future<void> removeSongFromPlaylist(int playlistId, int songId) async {
     final db = await database;
-    await db.delete('playlist_songs', 
-      where: 'playlist_id = ? AND song_id = ?', 
-      whereArgs: [playlistId, songId]);
+    await db.delete(
+      'playlist_songs',
+      where: 'playlist_id = ? AND song_id = ?',
+      whereArgs: [playlistId, songId],
+    );
   }
 
   Future<List<int>> getPlaylistSongs(int playlistId) async {
     final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query('playlist_songs', 
-      where: 'playlist_id = ?', 
-      whereArgs: [playlistId]);
+    final List<Map<String, dynamic>> maps = await db.query(
+      'playlist_songs',
+      where: 'playlist_id = ?',
+      whereArgs: [playlistId],
+    );
     return List.generate(maps.length, (i) => maps[i]['song_id'] as int);
   }
 }

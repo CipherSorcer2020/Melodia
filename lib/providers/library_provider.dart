@@ -1,83 +1,84 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/playlist_model.dart';
-import '../services/library_service.dart';
 import '../services/database_service.dart';
+import '../services/library_service.dart';
 
-enum SongSortCriteria {
-  title,
-  dateAdded,
-}
+enum SongSortCriteria { title, dateAdded }
 
-enum SortOrder {
-  ascending,
-  descending,
-}
+enum SortOrder { ascending, descending }
 
 class LibraryProvider with ChangeNotifier {
-  final LibraryService _libraryService = LibraryService();
-  final DatabaseService _dbService = DatabaseService();
-  late SharedPreferences _prefs;
-  
+  final _libraryService = LibraryService();
+  final _dbService = DatabaseService();
+
+  // Nullable until initialize() completes
+  SharedPreferences? _prefs;
+
   List<SongModel> _allSongs = [];
   Set<int> _favorites = {};
   List<CustomPlaylist> _playlists = [];
-  
+
   bool _isLoading = false;
   bool _hasPermission = false;
-
   String _searchQuery = '';
   SongSortCriteria _sortCriteria = SongSortCriteria.title;
   SortOrder _sortOrder = SortOrder.ascending;
 
-  // Exposed getters for UI
-  List<SongModel> get songs {
-    List<SongModel> filteredSongs = _allSongs.where((song) {
-      if (_searchQuery.isEmpty) return true;
-      return song.title.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-             (song.artist?.toLowerCase().contains(_searchQuery.toLowerCase()) ?? false);
-    }).toList();
+  // ── Getters ────────────────────────────────────────────────────────────────
 
-    filteredSongs.sort((a, b) {
-      int compareResult;
-      switch (_sortCriteria) {
-        case SongSortCriteria.title:
-          compareResult = a.title.toLowerCase().compareTo(b.title.toLowerCase());
-          break;
-        case SongSortCriteria.dateAdded:
-          compareResult = (a.dateAdded ?? 0).compareTo(b.dateAdded ?? 0);
-          break;
-      }
-      return _sortOrder == SortOrder.ascending ? compareResult : -compareResult;
-    });
-
-    return filteredSongs;
-  }
-  List<SongModel> get favoriteSongs => songs.where((s) => _favorites.contains(s.id)).toList();
-  List<CustomPlaylist> get playlists => _playlists;
   bool get isLoading => _isLoading;
   bool get hasPermission => _hasPermission;
   String get searchQuery => _searchQuery;
   SongSortCriteria get sortCriteria => _sortCriteria;
   SortOrder get sortOrder => _sortOrder;
 
+  List<SongModel> get songs {
+    var list = _searchQuery.isEmpty
+        ? _allSongs
+        : _allSongs.where((s) {
+            final q = _searchQuery.toLowerCase();
+            return s.title.toLowerCase().contains(q) ||
+                (s.artist?.toLowerCase().contains(q) ?? false);
+          }).toList();
+
+    list = List.of(list)..sort((a, b) {
+      final cmp = _sortCriteria == SongSortCriteria.title
+          ? a.title.toLowerCase().compareTo(b.title.toLowerCase())
+          : (a.dateAdded ?? 0).compareTo(b.dateAdded ?? 0);
+      return _sortOrder == SortOrder.ascending ? cmp : -cmp;
+    });
+
+    return list;
+  }
+
+  List<SongModel> get favoriteSongs =>
+      songs.where((s) => _favorites.contains(s.id)).toList();
+
+  List<CustomPlaylist> get playlists => List.unmodifiable(_playlists);
+
+  bool isFavorite(int songId) => _favorites.contains(songId);
+
+  // ── Initialization ─────────────────────────────────────────────────────────
+
   Future<void> initialize() async {
     _isLoading = true;
     notifyListeners();
 
-    _prefs = await SharedPreferences.getInstance();
-    _loadPreferences();
-
     try {
-      await Future.delayed(const Duration(milliseconds: 500));
-      _hasPermission = await _libraryService.checkAndRequestPermissions();
+      _prefs = await SharedPreferences.getInstance();
+      _loadPreferences();
+
+      _hasPermission = await _libraryService
+          .checkAndRequestPermissions()
+          .timeout(const Duration(seconds: 8), onTimeout: () => false);
       if (_hasPermission) {
         await refreshSongs();
         await _loadUserData();
       }
     } catch (e) {
-      debugPrint('Error during library initialization: $e');
+      debugPrint('Library init error: $e');
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -85,60 +86,84 @@ class LibraryProvider with ChangeNotifier {
   }
 
   void _loadPreferences() {
-    _searchQuery = _prefs.getString('searchQuery') ?? '';
-    _sortCriteria = SongSortCriteria.values.byName(_prefs.getString('sortCriteria') ?? SongSortCriteria.title.name);
-    _sortOrder = SortOrder.values.byName(_prefs.getString('sortOrder') ?? SortOrder.ascending.name);
+    final p = _prefs;
+    if (p == null) return;
+    _searchQuery = p.getString('searchQuery') ?? '';
+    _sortCriteria = SongSortCriteria.values.firstWhere(
+      (e) => e.name == p.getString('sortCriteria'),
+      orElse: () => SongSortCriteria.title,
+    );
+    _sortOrder = SortOrder.values.firstWhere(
+      (e) => e.name == p.getString('sortOrder'),
+      orElse: () => SortOrder.ascending,
+    );
   }
 
   Future<void> _savePreferences() async {
-    await _prefs.setString('searchQuery', _searchQuery);
-    await _prefs.setString('sortCriteria', _sortCriteria.name);
-    await _prefs.setString('sortOrder', _sortOrder.name);
+    final p = _prefs;
+    if (p == null) return;
+    await Future.wait([
+      p.setString('searchQuery', _searchQuery),
+      p.setString('sortCriteria', _sortCriteria.name),
+      p.setString('sortOrder', _sortOrder.name),
+    ]);
   }
 
   Future<void> refreshSongs() async {
-    _allSongs = await _libraryService.fetchSongs();
-    notifyListeners();
-  }
-
-  Future<void> setSearchQuery(String query) async {
-    _searchQuery = query;
-    await _savePreferences();
-    notifyListeners();
-  }
-
-  Future<void> setSortCriteria(SongSortCriteria criteria) async {
-    _sortCriteria = criteria;
-    await _savePreferences();
-    notifyListeners();
-  }
-
-  Future<void> setSortOrder(SortOrder order) async {
-    _sortOrder = order;
-    await _savePreferences();
-    notifyListeners();
+    try {
+      _allSongs = await _libraryService.fetchSongs();
+      notifyListeners();
+    } catch (e) {
+      debugPrint('refreshSongs error: $e');
+    }
   }
 
   Future<void> _loadUserData() async {
-    final favList = await _dbService.getFavorites();
-    _favorites = favList.toSet();
-    
-    final pList = await _dbService.getPlaylists();
-    _playlists = [];
-    for (var p in pList) {
-      final songIds = await _dbService.getPlaylistSongs(p['id']);
-      final pSongs = _allSongs.where((s) => songIds.contains(s.id)).toList();
-      _playlists.add(CustomPlaylist(
-        id: p['id'],
-        name: p['name'],
-        songs: pSongs,
-      ));
+    try {
+      final favList = await _dbService.getFavorites();
+      _favorites = favList.toSet();
+
+      final pList = await _dbService.getPlaylists();
+      final playlists = <CustomPlaylist>[];
+      for (final p in pList) {
+        final songIds = await _dbService.getPlaylistSongs(p['id'] as int);
+        final pSongs =
+            _allSongs.where((s) => songIds.contains(s.id)).toList();
+        playlists.add(
+          CustomPlaylist(id: p['id'] as int, name: p['name'] as String, songs: pSongs),
+        );
+      }
+      _playlists = playlists;
+      notifyListeners();
+    } catch (e) {
+      debugPrint('loadUserData error: $e');
     }
-    notifyListeners();
   }
 
-  // Favorites
-  bool isFavorite(int songId) => _favorites.contains(songId);
+  // ── Search & Sort ──────────────────────────────────────────────────────────
+
+  Future<void> setSearchQuery(String query) async {
+    if (_searchQuery == query) return;
+    _searchQuery = query;
+    notifyListeners();
+    await _savePreferences();
+  }
+
+  Future<void> setSortCriteria(SongSortCriteria criteria) async {
+    if (_sortCriteria == criteria) return;
+    _sortCriteria = criteria;
+    notifyListeners();
+    await _savePreferences();
+  }
+
+  Future<void> setSortOrder(SortOrder order) async {
+    if (_sortOrder == order) return;
+    _sortOrder = order;
+    notifyListeners();
+    await _savePreferences();
+  }
+
+  // ── Favorites ──────────────────────────────────────────────────────────────
 
   Future<void> toggleFavorite(int songId) async {
     if (_favorites.contains(songId)) {
@@ -151,7 +176,8 @@ class LibraryProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  // Playlists
+  // ── Playlists ──────────────────────────────────────────────────────────────
+
   Future<void> createPlaylist(String name) async {
     final id = await _dbService.createPlaylist(name);
     _playlists.add(CustomPlaylist(id: id, name: name));
@@ -160,7 +186,7 @@ class LibraryProvider with ChangeNotifier {
 
   Future<void> addSongToPlaylist(int playlistId, int songId) async {
     await _dbService.addSongToPlaylist(playlistId, songId);
-    await _loadUserData(); // Reload to sync songs in objects
+    await _loadUserData();
   }
 
   Future<void> deletePlaylist(int id) async {
@@ -169,17 +195,17 @@ class LibraryProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> deleteSongFromDevice(SongModel song) async {
-    final bool physicallyDeleted = await _libraryService.deleteSong(song);
-    if (physicallyDeleted) {
-      debugPrint('Song file ${song.data} physically deleted.');
-    } else {
-      debugPrint('Failed to physically delete song file ${song.data}. It might be due to Android scoped storage limitations.');
-    }
+  // ── Song Deletion ──────────────────────────────────────────────────────────
 
-    _allSongs.removeWhere((s) => s.id == song.id);
-    _favorites.remove(song.id);
-    await _dbService.removeFavorite(song.id);
-    notifyListeners();
+  Future<void> deleteSongFromDevice(SongModel song) async {
+    final deleted = await _libraryService.deleteSong(song);
+    if (deleted) {
+      _allSongs.removeWhere((s) => s.id == song.id);
+      _favorites.remove(song.id);
+      await _dbService.removeFavorite(song.id);
+      notifyListeners();
+    }
+    // Re-sync with MediaStore to reflect true on-disk state
+    await refreshSongs();
   }
 }

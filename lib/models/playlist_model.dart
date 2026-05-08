@@ -5,17 +5,9 @@ class CustomPlaylist {
   final String name;
   final List<SongModel> songs;
 
-  CustomPlaylist({
-    required this.id,
-    required this.name,
-    this.songs = const [],
-  });
+  CustomPlaylist({required this.id, required this.name, this.songs = const []});
 
-  CustomPlaylist copyWith({
-    int? id,
-    String? name,
-    List<SongModel>? songs,
-  }) {
+  CustomPlaylist copyWith({int? id, String? name, List<SongModel>? songs}) {
     return CustomPlaylist(
       id: id ?? this.id,
       name: name ?? this.name,
