@@ -43,12 +43,6 @@ class _MelodiaAppState extends State<MelodiaApp> {
     // Notification permission — required on Android 13+ for any notification
     await Permission.notification.request();
 
-    // Battery optimization exemption — ColorOS/OPPO aggressively kills services
-    // without this, killing the foreground audio service when the app backgrounds
-    if (!await Permission.ignoreBatteryOptimizations.isGranted) {
-      await Permission.ignoreBatteryOptimizations.request();
-    }
-
     MelodiaAudioHandler handler;
     try {
       handler = await AudioService.init(

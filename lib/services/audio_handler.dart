@@ -65,7 +65,12 @@ class MelodiaAudioHandler extends BaseAudioHandler
   }
 
   @override
-  Future<void> skipToNext() => _player.seekToNext();
+  Future<void> skipToNext() async {
+    final sequence = _player.sequence;
+    if (sequence == null || sequence.isEmpty) return;
+    final next = ((_player.currentIndex ?? 0) + 1) % sequence.length;
+    await _player.seek(Duration.zero, index: next);
+  }
 
   @override
   Future<void> skipToPrevious() async {
